@@ -9,18 +9,22 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Install Bore
+      - name: Install Bore (Fixed)
         run: |
-          curl -L -o bore https://github.com/ekzhang/bore/releases/latest/download/bore-aarch64-apple-darwin
+          # Download bore binary correctly
+          curl -L -o bore.zip https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-aarch64-apple-darwin.zip
+          unzip bore.zip
           chmod +x bore
           sudo mv bore /usr/local/bin/
+          # Verify installation
+          bore --version
 
       - name: Start VNC Server
         run: |
-          # Kill any existing VNC sessions
+          # Kill existing VNC
           sudo killall AppleVNCServer 2>/dev/null || true
           
-          # Start VNC server on port 5900
+          # Enable Remote Management
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
             -configure \
@@ -30,13 +34,15 @@ jobs:
             -allowAccessFor -allUsers
           
           # Verify VNC is running
-          sudo lsof -i :5900 || echo "Port 5900 check"
+          sudo lsof -i :5900
 
       - name: Expose VNC via Bore Tunnel
         id: tunnel
         run: |
-          bore local 5900 --to bore.pub 2>&1 | tee bore.log &
+          # Start bore tunnel
+          bore local 5900 --to bore.pub > bore.log 2>&1 &
           sleep 8
+          cat bore.log
           TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
           echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
           echo "Tunnel URL: $TUNNEL_URL"
@@ -49,12 +55,13 @@ jobs:
           echo "Server: ${{ steps.tunnel.outputs.tunnel_url }}"
           echo "Password: ${{ secrets.VNC_PASSWORD }}"
           echo "=========================================="
-          echo ""
-          echo "Connect using: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
-          echo "Username: Any (macOS will prompt)"
+          if [ -n "${{ steps.tunnel.outputs.tunnel_url }}" ]; then
+            echo "Connect using: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
+          else
+            echo "⚠️ Tunnel failed to start - check logs above"
+          fi
           echo "=========================================="
           
-          # Keep runner alive
           while true; do 
             echo "Session active - $(date)"
             sleep 300
