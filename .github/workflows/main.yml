@@ -9,25 +9,36 @@ jobs:
     timeout-minutes: 360
 
     steps:
+      - name: Get Username
+        run: |
+          echo "Current user: $(whoami)"
+          echo "Full username: $(id -un)"
+          echo "Home dir: $HOME"
+
       - name: Install Bore via Homebrew
         run: |
           brew install bore-cli
 
-      - name: Start VNC Server
+      - name: Start VNC Server with Specific User
         run: |
+          CURRENT_USER=$(whoami)
+          echo "Setting up VNC for user: $CURRENT_USER"
+          
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpw -vncpw ${{ secrets.VNC_PASSWORD }} \
-            -restart -agent -allowAccessFor -allUsers
+            -restart -agent \
+            -allowAccessFor -specifiedUsers \
+            -users $CURRENT_USER
 
       - name: Expose VNC via Bore Tunnel
         id: tunnel
         run: |
           bore local 5900 --to bore.pub 2>&1 | tee bore.log &
           sleep 10
-          cat bore.log
           TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
           echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
+          echo "USERNAME=$(whoami)" >> $GITHUB_OUTPUT
 
       - name: Keep Connection Alive
         run: |
@@ -35,8 +46,10 @@ jobs:
           echo "✅ macOS VNC READY"
           echo "=========================================="
           echo "Server: ${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "Username: ${{ steps.tunnel.outputs.USERNAME }}"
           echo "Password: ${{ secrets.VNC_PASSWORD }}"
           echo "=========================================="
           echo "Connect using: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "Username: ${{ steps.tunnel.outputs.USERNAME }}"
           echo "=========================================="
           while true; do sleep 60; done
