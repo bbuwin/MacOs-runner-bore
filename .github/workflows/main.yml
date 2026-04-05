@@ -9,58 +9,53 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Enable Screen Sharing for Specific User
-        run: |
-          # Get the current username
-          CURRENT_USER=$(whoami)
-          echo "Current user: $CURRENT_USER"
-          
-          # Enable screen sharing
-          sudo defaults write /var/db/AppleSetup Done
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartOnBoot -bool true
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement ScreenSharingReqPermEnabled -bool false
-          
-          # Enable VNC with password
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -allowAccessFor -specifiedUsers \
-            -users ${{ secrets.MACOS_USERNAME }} \
-            -privs -all \
-            -clientopts -setvncpw -vncpw ${{ secrets.VNC_PASSWORD }}
-          
-          # Start the service
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -restart -agent
-
       - name: Install Bore
         run: |
           curl -L -o bore https://github.com/ekzhang/bore/releases/latest/download/bore-aarch64-apple-darwin
           chmod +x bore
           sudo mv bore /usr/local/bin/
 
+      - name: Start VNC Server
+        run: |
+          # Kill any existing VNC sessions
+          sudo killall AppleVNCServer 2>/dev/null || true
+          
+          # Start VNC server on port 5900
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate \
+            -configure \
+            -access -on \
+            -clientopts -setvncpw -vncpw ${{ secrets.VNC_PASSWORD }} \
+            -restart -agent \
+            -allowAccessFor -allUsers
+          
+          # Verify VNC is running
+          sudo lsof -i :5900 || echo "Port 5900 check"
+
       - name: Expose VNC via Bore Tunnel
         id: tunnel
         run: |
           bore local 5900 --to bore.pub 2>&1 | tee bore.log &
-          sleep 5
+          sleep 8
           TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
           echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
+          echo "Tunnel URL: $TUNNEL_URL"
 
-      - name: Connection Details
+      - name: Keep Connection Alive
         run: |
           echo "=========================================="
-          echo "🍎 macOS VNC CONNECTION DETAILS"
+          echo "✅ macOS VNC READY"
           echo "=========================================="
           echo "Server: ${{ steps.tunnel.outputs.tunnel_url }}"
-          echo "Username: ${{ secrets.MACOS_USERNAME }}"
           echo "Password: ${{ secrets.VNC_PASSWORD }}"
           echo "=========================================="
           echo ""
-          echo "Connect using any VNC client:"
-          echo "  - RealVNC, TightVNC, or macOS Screen Sharing"
-          echo "  - VNC Viewer: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "Connect using: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "Username: Any (macOS will prompt)"
           echo "=========================================="
-          echo ""
-          echo "⏳ Session active for up to 6 hours"
           
-          while true; do sleep 60; done
+          # Keep runner alive
+          while true; do 
+            echo "Session active - $(date)"
+            sleep 300
+          done
