@@ -9,14 +9,9 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Install Bore (Fixed URL)
+      - name: Install Bore via Homebrew
         run: |
-          # Download from correct GitHub releases URL
-          curl -L -o bore https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-aarch64-apple-darwin
-          chmod +x bore
-          sudo mv bore /usr/local/bin/
-          # Verify it works
-          /usr/local/bin/bore --version || echo "Checking bore"
+          brew install bore-cli
 
       - name: Start VNC Server
         run: |
@@ -28,10 +23,10 @@ jobs:
       - name: Expose VNC via Bore Tunnel
         id: tunnel
         run: |
-          /usr/local/bin/bore local 5900 --to bore.pub 2>&1 | tee bore.log &
+          bore local 5900 --to bore.pub 2>&1 | tee bore.log &
           sleep 10
           cat bore.log
-          TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1 || echo "")
+          TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
           echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
 
       - name: Keep Connection Alive
@@ -41,5 +36,7 @@ jobs:
           echo "=========================================="
           echo "Server: ${{ steps.tunnel.outputs.tunnel_url }}"
           echo "Password: ${{ secrets.VNC_PASSWORD }}"
+          echo "=========================================="
+          echo "Connect using: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
           echo "=========================================="
           while true; do sleep 60; done
