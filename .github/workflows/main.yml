@@ -1,0 +1,66 @@
+name: macOS VNC with Bore Tunnel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  macos-vnc:
+    runs-on: macos-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable Screen Sharing for Specific User
+        run: |
+          # Get the current username
+          CURRENT_USER=$(whoami)
+          echo "Current user: $CURRENT_USER"
+          
+          # Enable screen sharing
+          sudo defaults write /var/db/AppleSetup Done
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStartOnBoot -bool true
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement ScreenSharingReqPermEnabled -bool false
+          
+          # Enable VNC with password
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -allowAccessFor -specifiedUsers \
+            -users ${{ secrets.MACOS_USERNAME }} \
+            -privs -all \
+            -clientopts -setvncpw -vncpw ${{ secrets.VNC_PASSWORD }}
+          
+          # Start the service
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -restart -agent
+
+      - name: Install Bore
+        run: |
+          curl -L -o bore https://github.com/ekzhang/bore/releases/latest/download/bore-aarch64-apple-darwin
+          chmod +x bore
+          sudo mv bore /usr/local/bin/
+
+      - name: Expose VNC via Bore Tunnel
+        id: tunnel
+        run: |
+          bore local 5900 --to bore.pub 2>&1 | tee bore.log &
+          sleep 5
+          TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
+          echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
+
+      - name: Connection Details
+        run: |
+          echo "=========================================="
+          echo "🍎 macOS VNC CONNECTION DETAILS"
+          echo "=========================================="
+          echo "Server: ${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "Username: ${{ secrets.MACOS_USERNAME }}"
+          echo "Password: ${{ secrets.VNC_PASSWORD }}"
+          echo "=========================================="
+          echo ""
+          echo "Connect using any VNC client:"
+          echo "  - RealVNC, TightVNC, or macOS Screen Sharing"
+          echo "  - VNC Viewer: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "=========================================="
+          echo ""
+          echo "⏳ Session active for up to 6 hours"
+          
+          while true; do sleep 60; done
