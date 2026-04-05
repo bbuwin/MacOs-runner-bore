@@ -9,36 +9,46 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Get Username
+      - name: Install TigerVNC (More Reliable)
         run: |
-          echo "Current user: $(whoami)"
-          echo "Full username: $(id -un)"
-          echo "Home dir: $HOME"
+          brew install tigervnc
 
-      - name: Install Bore via Homebrew
+      - name: Set VNC Password
+        run: |
+          # Create .vnc directory
+          mkdir -p ~/.vnc
+          # Set password using vncpasswd
+          echo "${{ secrets.VNC_PASSWORD }}" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          chmod 700 ~/.vnc
+
+      - name: Start VNC Server
+        run: |
+          # Kill any existing VNC sessions
+          vncserver -kill :1 2>/dev/null || true
+          
+          # Start new VNC session on display :1
+          vncserver :1 -geometry 1366x768 -depth 24 -localhost no
+          
+          # Wait for VNC to start
+          sleep 5
+          
+          # Verify VNC is running
+          ps aux | grep vnc
+
+      - name: Install Bore
         run: |
           brew install bore-cli
-
-      - name: Start VNC Server with Specific User
-        run: |
-          CURRENT_USER=$(whoami)
-          echo "Setting up VNC for user: $CURRENT_USER"
-          
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -clientopts -setvncpw -vncpw ${{ secrets.VNC_PASSWORD }} \
-            -restart -agent \
-            -allowAccessFor -specifiedUsers \
-            -users $CURRENT_USER
 
       - name: Expose VNC via Bore Tunnel
         id: tunnel
         run: |
-          bore local 5900 --to bore.pub 2>&1 | tee bore.log &
+          # Bore tunnel on VNC port 5901 (display :1 uses port 5901)
+          bore local 5901 --to bore.pub 2>&1 | tee bore.log &
           sleep 10
+          cat bore.log
           TUNNEL_URL=$(grep -o 'bore.pub:[0-9]*' bore.log | head -1)
           echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
-          echo "USERNAME=$(whoami)" >> $GITHUB_OUTPUT
 
       - name: Keep Connection Alive
         run: |
@@ -46,10 +56,19 @@ jobs:
           echo "✅ macOS VNC READY"
           echo "=========================================="
           echo "Server: ${{ steps.tunnel.outputs.tunnel_url }}"
-          echo "Username: ${{ steps.tunnel.outputs.USERNAME }}"
           echo "Password: ${{ secrets.VNC_PASSWORD }}"
           echo "=========================================="
+          echo ""
+          echo "IMPORTANT: Use these settings in your VNC client:"
+          echo "  - Server: ${{ steps.tunnel.outputs.tunnel_url }}"
+          echo "  - Password: ${{ secrets.VNC_PASSWORD }}"
+          echo "  - Encryption: Prefer Off"
+          echo "  - Username: (leave blank)"
+          echo ""
           echo "Connect using: vnc://${{ steps.tunnel.outputs.tunnel_url }}"
-          echo "Username: ${{ steps.tunnel.outputs.USERNAME }}"
           echo "=========================================="
-          while true; do sleep 60; done
+          
+          while true; do 
+            echo "Session active - $(date)"
+            sleep 300
+          done
